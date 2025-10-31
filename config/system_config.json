@@ -1,0 +1,28 @@
+{
+  "_comment": "Osnovni konfiguracioni fajl za simulaciju HVAC sistema",
+  "system": {
+    "name": "Federated HVAC Control System",
+    "version": "1.0.0",
+    "description": "Kontrola zajedničkog uređaja pomoću federativnog učenja"
+  },
+  
+  "simulation": {
+    "duration_minutes": 30,
+    "data_interval_seconds": 5,
+    "enable_logging": true,
+    "enable_visualization": true
+  },
+  
+  "federation": {
+    "num_rounds": 5,
+    "local_epochs": 10,
+    "convergence_threshold": 0.001
+  },
+  
+  "control": {
+    "deadband_celsius": 0.5,
+    "mode_threshold_celsius": 1.0,
+    "min_on_time_seconds": 240,
+    "min_off_time_seconds": 240
+  }
+}
