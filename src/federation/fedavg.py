@@ -3,7 +3,7 @@ FedAvg (Federated Averaging) algoritam za agregaciju lokalnih modela.
 """
 import numpy as np
 from typing import List, Tuple
-from ..utils.messages import ModelUpdate
+from utils.messages import ModelUpdate
 
 
 class FedAvg:

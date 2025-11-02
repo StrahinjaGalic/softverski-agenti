@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import logging
 
-from ..utils.messages import Message
+from utils.messages import Message
 
 
 class BaseActor(ABC):
@@ -173,7 +173,7 @@ class BaseActor(ABC):
     
     def _deserialize_message(self, message_str: str) -> Message:
         """Deserijalizuje JSON string u poruku."""
-        from ..utils.messages import (
+        from utils.messages import (
             StartTraining, ModelUpdate, GlobalModelUpdate,
             PredictRequest, PredictResponse, CollectProposals,
             ProposalResponse, ApplyCommand, LogMetrics, LogEvent, SensorData

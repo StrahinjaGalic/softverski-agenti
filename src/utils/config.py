@@ -59,9 +59,9 @@ class NetworkConfig:
 @dataclass
 class SystemConfig:
     """Glavna konfiguracija sistema"""
-    federation: FederationConfig = FederationConfig()
-    control: ControlConfig = ControlConfig()
-    network: NetworkConfig = NetworkConfig()
+    federation: FederationConfig = None
+    control: ControlConfig = None
+    network: NetworkConfig = None
     
     # Lista konfiguracija senzora
     sensors: List[SensorConfig] = None
@@ -71,6 +71,12 @@ class SystemConfig:
     data_collection_interval: int = 1  # svake sekunde
     
     def __post_init__(self):
+        if self.federation is None:
+            self.federation = FederationConfig()
+        if self.control is None:
+            self.control = ControlConfig()
+        if self.network is None:
+            self.network = NetworkConfig()
         if self.sensors is None:
             self.sensors = [
                 SensorConfig("sensor_01", "living_room", (20, 28), (200, 600)),
