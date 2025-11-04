@@ -81,6 +81,7 @@ class LogMetrics(Message):
     metric_type: str    # MSE, accuracy, itd.
     value: float
     round_number: Optional[int] = None
+    data: Optional[dict] = None  # dodatni podaci
 
 
 @dataclass
