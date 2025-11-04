@@ -35,7 +35,9 @@ def load_config_from_json(json_path: str = "config/system_config.json") -> Syste
             cfg.control.min_on_time = control['min_on_time_seconds']
         if 'min_off_time_seconds' in control:
             cfg.control.min_off_time = control['min_off_time_seconds']
-        print(f"[CONFIG] Loaded control params: mode_threshold={cfg.control.mode_threshold}, " 
-              f"min_on_time={cfg.control.min_on_time}s, min_off_time={cfg.control.min_off_time}s")
+        print(
+            f"[CONFIG] Loaded control params: mode_threshold={cfg.control.mode_threshold}, "
+            f"min_on_time={cfg.control.min_on_time}s, min_off_time={cfg.control.min_off_time}s"
+        )
     
     return cfg
