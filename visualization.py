@@ -7,15 +7,15 @@ Učitava logove iz `logs/system_log.json` i kreira vizualizacije:
 3. Timeline HVAC moda (IDLE/COOL/HEAT)
 4. Komande poslate DeviceController-u
 """
+# Add src to path dynamically
+import sys
+from pathlib import Path
+sys.path.insert(0, str((Path(__file__).parent / 'src').resolve()))
+
 import json
 import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
-from pathlib import Path
-import sys
-
-# Add src to path
-sys.path.insert(0, 'd:/4.godina/Agenti/Projekat/softverski-agenti/src')
 
 
 class VisualizationDashboard:

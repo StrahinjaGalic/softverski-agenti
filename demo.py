@@ -16,10 +16,11 @@ import asyncio
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
-# Add src to path
-sys.path.insert(0, 'd:/4.godina/Agenti/Projekat/softverski-agenti/src')
+# Add src to path dynamically
+sys.path.insert(0, str((Path(__file__).parent / 'src').resolve()))
 
 from actors.coordinator_actor import CoordinatorActor
 from actors.sensor_actor import SensorActor
