@@ -44,6 +44,9 @@ class DeviceControllerActor(BaseActor):
         actor_id: str = "device_controller",
         logger_host: str = "localhost",
         logger_port: int = 8002,
+        mode_threshold: float = 0.7,  # Iz system_config.json
+        min_on_time_seconds: int = 2,  # Iz system_config.json
+        min_off_time_seconds: int = 2,  # Iz system_config.json
         **kwargs
     ):
         super().__init__(actor_id=actor_id, **kwargs)
@@ -53,13 +56,13 @@ class DeviceControllerActor(BaseActor):
         # Device state
         self.state = DeviceState()
         
-        # Hysteresis parameters
-        self.deadband = 0.5  # °C
-        self.min_on_time = timedelta(minutes=2)
-        self.min_off_time = timedelta(minutes=1)
+        # Hysteresis parameters - koristi iz konfiga!
+        self.deadband = mode_threshold  # Ne hardkoduj, koristi iz konfiga
+        self.min_on_time = timedelta(seconds=min_on_time_seconds)
+        self.min_off_time = timedelta(seconds=min_off_time_seconds)
         
-        # Simulirana temperatura okoline
-        self.ambient_temperature = 24.0
+        # Ambient temperatura - biće update-ovana iz senzora
+        self.ambient_temperature = None  # Ne hardkoduj, računaj iz senzora
         
         # Tracking za testiranje
         self.commands_received = []  # Lista primljenih komandi
@@ -99,6 +102,9 @@ class DeviceControllerActor(BaseActor):
                 'reference_temp': message.reference_temp
             }
         })
+        
+        # Update ambient temperature iz reference_temp (medijan senzora)
+        self.ambient_temperature = message.reference_temp
         
         # Proveri histarezis
         can_change, reason = self._can_change_mode(requested_mode, requested_setpoint)
@@ -146,10 +152,11 @@ class DeviceControllerActor(BaseActor):
             return True, "Same mode"
         
         # Deadband check: Da li je temperatura u deadband-u?
-        temp_diff = abs(self.ambient_temperature - new_setpoint)
-        if temp_diff < self.deadband and new_mode == "IDLE":
-            # Temperatura je u deadband-u, dozvoljavamo IDLE
-            return True, "Within deadband, switching to IDLE"
+        if self.ambient_temperature is not None:
+            temp_diff = abs(self.ambient_temperature - new_setpoint)
+            if temp_diff < self.deadband and new_mode == "IDLE":
+                # Temperatura je u deadband-u, dozvoljavamo IDLE
+                return True, "Within deadband, switching to IDLE"
         
         # Min-on time check: Mora biti upaljen minimum min_on_time
         if current_mode == "HEAT" and self.state.heat_on_time:
@@ -182,7 +189,7 @@ class DeviceControllerActor(BaseActor):
     async def _log_command_metric(self, command: ApplyCommand, old_mode: str):
         """Šalje metrike LoggerActor-u."""
         # Value = temperaturna razlika (ambient - setpoint)
-        temp_diff = abs(self.ambient_temperature - command.setpoint)
+        temp_diff = abs(self.ambient_temperature - command.setpoint) if self.ambient_temperature is not None else 0.0
         
         metric = LogMetrics(
             timestamp=datetime.now(),

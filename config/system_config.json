@@ -22,7 +22,54 @@
   "control": {
     "deadband_celsius": 0.5,
     "mode_threshold_celsius": 1.0,
-    "min_on_time_seconds": 240,
-    "min_off_time_seconds": 240
+    "min_on_time_seconds": 2,
+    "min_off_time_seconds": 2
+  },
+
+  "scenarios": {
+    "_comment": "Definiši tačne temperature i svetlost za svaki ciklus. Ako nije definisano, koristi simulaciju.",
+    "enabled": true,
+    "cycles": [
+      {
+        "_comment": "Ciklus 1: Jutro - hladna kuća, otvoreni prozori",
+        "living_room": {"temperature": 4.0, "luminosity": 250},
+        "bedroom": {"temperature": 5.0, "luminosity": 200},
+        "kitchen": {"temperature": 30.0, "luminosity": 300},
+        "office": {"temperature": 2.5, "luminosity": 280},
+        "bathroom": {"temperature": 4.0, "luminosity": 220}
+      },
+      {
+        "_comment": "Ciklus 2: Podne - kuvanje, sunčano",
+        "living_room": {"temperature": 22.0, "luminosity": 450},
+        "bedroom": {"temperature": 21.0, "luminosity": 350},
+        "kitchen": {"temperature": 35.0, "luminosity": 500},
+        "office": {"temperature": 24.0, "luminosity": 550},
+        "bathroom": {"temperature": 23.0, "luminosity": 400}
+      },
+      {
+        "_comment": "Ciklus 3: Popodne - sunce kroz prozor kancelarije",
+        "living_room": {"temperature": 40.0, "luminosity": 400},
+        "bedroom": {"temperature": 40.0, "luminosity": 300},
+        "kitchen": {"temperature": 25.0, "luminosity": 450},
+        "office": {"temperature": 35.0, "luminosity": 650},
+        "bathroom": {"temperature": 34.0, "luminosity": 380}
+      },
+      {
+        "_comment": "Ciklus 4: Večer - vrući tuš u kupat ilu",
+        "living_room": {"temperature": 22.0, "luminosity": 350},
+        "bedroom": {"temperature": 21.0, "luminosity": 250},
+        "kitchen": {"temperature": 23.0, "luminosity": 400},
+        "office": {"temperature": 22.5, "luminosity": 300},
+        "bathroom": {"temperature": 30.0, "luminosity": 450}
+      },
+      {
+        "_comment": "Ciklus 5: Noć - normalne temperature",
+        "living_room": {"temperature": 21.0, "luminosity": 200},
+        "bedroom": {"temperature": 20.0, "luminosity": 150},
+        "kitchen": {"temperature": 22.0, "luminosity": 250},
+        "office": {"temperature": 21.5, "luminosity": 180},
+        "bathroom": {"temperature": 22.0, "luminosity": 200}
+      }
+    ]
   }
 }

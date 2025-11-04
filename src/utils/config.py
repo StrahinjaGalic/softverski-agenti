@@ -1,6 +1,8 @@
 """
 Konfiguracija sistema - parametri za federativno učenje i kontrolu uređaja.
 """
+import json
+import os
 from dataclasses import dataclass
 from typing import List
 
@@ -20,7 +22,8 @@ class ControlConfig:
     """Parametri kontrole uređaja"""
     # Histereza
     deadband: float = 0.5      # ±0.5°C deadband
-    mode_threshold: float = 1.0 # ±1.0°C za prelazak režima
+    # Control
+    mode_threshold: float = 0.7 # ±0.7°C za prelazak režima (bilo 1.0°C)
     
     # Min-on/off vremena
     min_on_time: int = 240     # 4 minuta u sekundama
@@ -67,7 +70,7 @@ class SystemConfig:
     sensors: List[SensorConfig] = None
     
     # Simulacija
-    simulation_duration: int = 300  # 5 minuta u sekundama
+    simulation_duration: int = 1  # Brza simulacija za demo (bilo 300)
     data_collection_interval: int = 1  # svake sekunde
     
     def __post_init__(self):
@@ -79,11 +82,12 @@ class SystemConfig:
             self.network = NetworkConfig()
         if self.sensors is None:
             self.sensors = [
-                SensorConfig("sensor_01", "living_room", (20, 28), (200, 600)),
-                SensorConfig("sensor_02", "bedroom", (18, 26), (100, 400)),
-                SensorConfig("sensor_03", "kitchen", (22, 30), (300, 700)),
-                SensorConfig("sensor_04", "office", (19, 27), (400, 800)),
-                SensorConfig("sensor_05", "bathroom", (21, 29), (150, 500)),
+                # Balansirana raspodela: 3 hladnija + 2 toplija = varijabilna medijana
+                SensorConfig("sensor_01", "living_room", (18, 24), (200, 600), noise_std=1.0),  # COOL
+                SensorConfig("sensor_02", "bedroom", (17, 23), (100, 400), noise_std=0.8),      # COOL
+                SensorConfig("sensor_03", "kitchen", (25, 30), (300, 700), noise_std=1.2),      # HOT
+                SensorConfig("sensor_04", "office", (19, 25), (400, 800), noise_std=0.9),       # COOL
+                SensorConfig("sensor_05", "bathroom", (26, 31), (150, 500), noise_std=1.1),     # HOT
             ]
 
 

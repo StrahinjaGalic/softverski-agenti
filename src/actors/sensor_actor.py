@@ -19,7 +19,7 @@ from federation.model import HVACModel
 from simulation.data_generator import DataGenerator
 from utils.messages import (
     Message, StartTraining, ModelUpdate, GlobalModelUpdate,
-    PredictRequest, ProposalResponse, CollectProposals, SensorData
+    PredictRequest, PredictResponse, ProposalResponse, CollectProposals, SensorData
 )
 from utils.config import config, SensorConfig
 
@@ -78,11 +78,36 @@ class SensorActor(BaseActor):
         # Data generator za simulaciju
         self.data_generator = DataGenerator()
         
+        # Scenario tracking - za hardkodovane cikluse iz config-a
+        self.current_cycle = 0
+        self.scenario_config = self._load_scenario_config()
+        
         # Task-ovi za periodične operacije
         self.sensor_simulation_task = None
         self.proposal_task = None
         
         self.logger.info(f"SensorActor {self.sensor_config.sensor_id} initialized on port {sensor_port}")
+    
+    def _load_scenario_config(self):
+        """Učitava scenario konfiguraciju iz system_config.json."""
+        try:
+            import json
+            from pathlib import Path
+            
+            config_path = Path(__file__).parent.parent.parent / "config" / "system_config.json"
+            with open(config_path, 'r', encoding='utf-8') as f:
+                full_config = json.load(f)
+                scenarios = full_config.get("scenarios", {})
+                
+                if scenarios.get("enabled", False):
+                    self.logger.info(f"Scenario mode ENABLED - using hardcoded cycles from config")
+                    return scenarios
+                else:
+                    self.logger.info(f"Scenario mode DISABLED - using dynamic simulation")
+                    return None
+        except Exception as e:
+            self.logger.warning(f"Failed to load scenario config: {e}. Using dynamic simulation.")
+            return None
     
     def _get_sensor_port(self, sensor_id: str) -> int:
         """
@@ -137,14 +162,15 @@ class SensorActor(BaseActor):
         """
         self.logger.info(f"Generating training data for {self.sensor_config.location}")
         
-        # Generiši povijene podatke (24h sa 5min intervalima = 288 uzoraka)
+        # Generiši povijene podatke (7 dana sa 10min intervalima = 1008 uzoraka)
+        # Svaki senzor će imati različite podatke jer imaju različite temp_range i luminosity_range
         df = self.data_generator.generate_sensor_data(
             sensor_id=self.sensor_config.sensor_id,
             location=self.sensor_config.location,
             temp_range=self.sensor_config.temp_range,
             luminosity_range=self.sensor_config.luminosity_range,
-            duration_hours=24,
-            interval_minutes=5,
+            duration_hours=168,  # 7 dana
+            interval_minutes=10,
             noise_std=self.sensor_config.noise_std
         )
         
@@ -153,17 +179,23 @@ class SensorActor(BaseActor):
         self.training_data['luminosities'] = df['luminosity'].values
         self.training_data['commands'] = df['y_cmd'].values
         
-        # Postavi trenutne uslove na poslednje vrednosti
-        last_row = df.iloc[-1]
+        # Postavi početne uslove RANDOM za realističnu simulaciju
+        temp_min, temp_max = self.sensor_config.temp_range
+        lum_min, lum_max = self.sensor_config.luminosity_range
+        
+        # Potpuno random početne vrednosti - nema hardcoding-a!
+        # Sistem treba da radi sa bilo kojim validnim početnim uslovima
+        initial_temp = np.random.uniform(temp_min, temp_max)
+        initial_lum = np.random.uniform(lum_min, lum_max)
+        
         self.current_conditions.update({
-            'temperature': float(last_row['temperature']),
-            'luminosity': float(last_row['luminosity']),
+            'temperature': float(initial_temp),
+            'luminosity': float(initial_lum),
             'last_update': datetime.now()
         })
         
         self.logger.info(f"Generated {len(df)} training samples. "
-                        f"Current: T={self.current_conditions['temperature']:.1f}°C, "
-                        f"L={self.current_conditions['luminosity']:.0f}lx")
+                        f"Initial: T={initial_temp:.1f}°C, L={initial_lum:.0f}lx")
     
     async def _sensor_simulation_loop(self):
         """
@@ -190,46 +222,102 @@ class SensorActor(BaseActor):
     
     def _update_simulated_conditions(self):
         """
-        Ažurira simulirane temperature i osvetljenost sa realističnim varijacijama.
+        Ažurira simulirane temperature sa FIZIČKI realističnom dinamikom.
+        
+        Dva režima rada:
+        1. SCENARIO MODE (ako enabled u config-u): Koristi hardkodovane vrednosti za svaki ciklus
+        2. DYNAMIC MODE: Simulira ekstremne događaje i drift
         """
+        # SCENARIO MODE: Koristi hardkodovane vrednosti iz config-a
+        if self.scenario_config and self.scenario_config.get("enabled", False):
+            cycles = self.scenario_config.get("cycles", [])
+            
+            # Ako imamo definisan ciklus, primeni te vrednosti
+            if 0 <= self.current_cycle < len(cycles):
+                cycle_data = cycles[self.current_cycle]
+                location_key = self.sensor_config.location.lower().replace(" ", "_")
+                
+                if location_key in cycle_data:
+                    sensor_data = cycle_data[location_key]
+                    self.current_conditions['temperature'] = sensor_data.get('temperature', self.current_conditions['temperature'])
+                    self.current_conditions['luminosity'] = sensor_data.get('luminosity', self.current_conditions['luminosity'])
+                    self.current_conditions['last_update'] = datetime.now()
+                    return
+        
+        # DYNAMIC MODE: Originalna simulacija sa ekstremima
         # Vreme od poslednjeg ažuriranja
         now = datetime.now()
         time_diff = (now - self.current_conditions['last_update']).total_seconds()
         
-        # Bazne vrednosti na osnovu vremena dana (sinusoidala)
-        hour = now.hour + now.minute / 60.0
-        
-        # Dnevni ciklus temperature (min ujutru u 6h, max popodne u 16h)
-        temp_base = sum(self.sensor_config.temp_range) / 2
-        temp_amplitude = (self.sensor_config.temp_range[1] - self.sensor_config.temp_range[0]) / 4
-        target_temp = temp_base + temp_amplitude * np.sin(2 * np.pi * (hour - 6) / 24)
-        
-        # Dnevni ciklus osvetljenosti (min noću, max podne)
-        lum_base = sum(self.sensor_config.luminosity_range) / 2  
-        lum_amplitude = (self.sensor_config.luminosity_range[1] - self.sensor_config.luminosity_range[0]) / 3
-        target_lum = lum_base + lum_amplitude * max(0, np.sin(2 * np.pi * (hour - 6) / 24))
-        
-        # Postupna promena ka ciljanim vrednostima (inercija)
-        temp_change_rate = 0.1  # °C/sec max
-        lum_change_rate = 5.0   # lx/sec max
-        
         curr_temp = self.current_conditions['temperature']
         curr_lum = self.current_conditions['luminosity']
         
-        # Ograniči brzinu promene
-        temp_diff = target_temp - curr_temp
-        temp_step = np.sign(temp_diff) * min(abs(temp_diff), temp_change_rate * time_diff)
+        # Temperatura se menja zbog:
+        # 1. Spoljašnjih faktora (ambient drift) - lagana tendencija ka nekoj "prirodnoj" temperaturi
+        # 2. EKSTREMNIH dogadjaja (kuvanje, otvoreni prozor, sunce)
+        # 3. Šuma (merenja, varijacije)
         
-        lum_diff = target_lum - curr_lum  
-        lum_step = np.sign(lum_diff) * min(abs(lum_diff), lum_change_rate * time_diff)
+        # Training mode: Statična simulacija (samo šum)
+        if self.is_training_mode:
+            temp_noise = np.random.normal(0, self.sensor_config.noise_std * 0.1)
+            lum_noise = np.random.normal(0, self.sensor_config.noise_std * 2)
+            
+            new_temp = curr_temp + temp_noise
+            new_lum = curr_lum + lum_noise
         
-        # Dodaj malu količinu šuma
-        temp_noise = np.random.normal(0, self.sensor_config.noise_std * 0.1)
-        lum_noise = np.random.normal(0, self.sensor_config.noise_std * 2)
-        
-        # Ažuriraj vrednosti
-        new_temp = curr_temp + temp_step + temp_noise
-        new_lum = curr_lum + lum_step + lum_noise
+        # Real-time mode: Dinamička simulacija sa EKSTREMIMA
+        else:
+            temp_min, temp_max = self.sensor_config.temp_range
+            
+            # === EKSTREMNI SCENARIJI (nasumično se dogadjaju) ===
+            # Svaki senzor može doživeti ekstremne uslove
+            extreme_event_chance = 0.15  # 15% šanse za ekstrem po update-u
+            extreme_modifier = 0.0
+            
+            if np.random.random() < extreme_event_chance:
+                # Kuhinja: kuvanje (35°C)
+                if "kitchen" in self.sensor_config.location.lower() or "03" in self.sensor_config.sensor_id:
+                    extreme_modifier = np.random.uniform(3, 8) * time_diff  # Brzo zagrevanje
+                    curr_lum = min(curr_lum + 100, self.sensor_config.luminosity_range[1])
+                
+                # Dnevna soba / Spavaća: otvoreni prozor zimi (16-17°C)
+                elif "living" in self.sensor_config.location.lower() or "bedroom" in self.sensor_config.location.lower():
+                    extreme_modifier = np.random.uniform(-5, -3) * time_diff  # Brzo hladjenje
+                
+                # Kupatilo: vrući tuš (28-30°C)
+                elif "bathroom" in self.sensor_config.location.lower() or "05" in self.sensor_config.sensor_id:
+                    extreme_modifier = np.random.uniform(2, 5) * time_diff
+                    curr_lum = max(curr_lum - 50, self.sensor_config.luminosity_range[0])
+                
+                # Kancelarija: sunce kroz prozor (25-27°C)
+                elif "office" in self.sensor_config.location.lower() or "04" in self.sensor_config.sensor_id:
+                    extreme_modifier = np.random.uniform(1, 3) * time_diff
+                    curr_lum = min(curr_lum + 150, self.sensor_config.luminosity_range[1])
+            
+            # === NORMALNA DINAMIKA (drift ka baznoj temp) ===
+            # Odredi baznu temperaturu na osnovu lokacije
+            if "01" in self.sensor_config.sensor_id or "02" in self.sensor_config.sensor_id:
+                base_temp = temp_min + (temp_max - temp_min) * 0.35
+            elif "04" in self.sensor_config.sensor_id:
+                base_temp = (temp_min + temp_max) / 2
+            else:
+                base_temp = temp_min + (temp_max - temp_min) * 0.65
+            
+            # Drift ka baznoj temp (sporiji od ekstrema)
+            drift_rate = 0.10  # Sporiji drift da omogući ekstreme
+            drift = (base_temp - curr_temp) * drift_rate * time_diff
+            
+            # Dodaj varijacije (weather effects)
+            temp_variation = np.random.normal(0, 0.8) * time_diff  # VELIKE varijacije
+            temp_noise = np.random.normal(0, self.sensor_config.noise_std * 0.3)
+            
+            # Osvetljenost: dnevna varijacija + šum
+            lum_step = np.random.uniform(-15, 15) * time_diff  # Veće promene
+            lum_noise = np.random.normal(0, self.sensor_config.noise_std * 5)
+            
+            # FINALNA TEMPERATURA = drift + ekstrem + varijacije + šum
+            new_temp = curr_temp + drift + extreme_modifier + temp_variation + temp_noise
+            new_lum = curr_lum + lum_step + lum_noise
         
         # Ograniči na dozvoljene opsege
         self.current_conditions['temperature'] = np.clip(
@@ -345,11 +433,14 @@ class SensorActor(BaseActor):
         if message.round_number >= config.federation.num_rounds:
             self.logger.info("Federation training completed. Starting real-time proposals.")
             self.is_training_mode = False
+            # Resetuj ciklus na 0 na početku real-time mode-a
+            self.current_cycle = 0
             self.proposal_task = asyncio.create_task(self._proposal_loop())
     
     async def _handle_collect_proposals(self, message: CollectProposals):
         """
         Obrađuje CollectProposals - šalje svoj predlog komande.
+        Takođe inkrementira ciklus za scenario mode.
         
         Args:
             message: CollectProposals poruka
@@ -362,6 +453,13 @@ class SensorActor(BaseActor):
         
         # Računaj confidence na osnovu lokalnej MSE
         confidence = 1.0 / (1.0 + self.local_mse) if self.local_mse < float('inf') else 0.5
+        
+        # INKREMENTUJ CIKLUS za sledeći poziv (scenario mode)
+        if self.scenario_config and self.scenario_config.get("enabled", False):
+            cycles = self.scenario_config.get("cycles", [])
+            if cycles:
+                self.current_cycle = (self.current_cycle + 1) % len(cycles)
+                self.logger.info(f"📍 Next cycle: {self.current_cycle + 1}/{len(cycles)}")
         
         # Kreiraj i pošalji odgovor
         response = ProposalResponse(

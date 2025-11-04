@@ -145,12 +145,16 @@ class CoordinatorActor(BaseActor):
             self.logger.info(f"   Participants: {stats['num_participants']}")
             self.logger.info(f"   Total samples: {stats['total_samples']}")
             
+            # Izračunaj prosečnu MSE od svih senzora
+            avg_mse = sum(update.mse for update in self.model_updates.values()) / len(self.model_updates)
+            
             # Loguj metrike
             await self._log_metrics("aggregation", {
                 "round": round_num,
                 "weights": global_weights.tolist(),
                 "bias": float(global_bias),
-                "num_participants": stats['num_participants']
+                "num_participants": stats['num_participants'],
+                "avg_mse": float(avg_mse)
             })
             
             # KORAK 4: Broadcast globalni model
