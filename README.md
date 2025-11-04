@@ -206,8 +206,9 @@ Logovi se čuvaju u `logs/system_log.json`:
 
 ## 👥 Autori
 
-- **Mihajlo** - CoordinatorActor, DeviceControllerActor, LoggerActor, Communication protocol
-- **Strahinja** - Demo script, Visualization dashboard, Integration tests, Documentation
+- **Strahinja Galic** - Demo script, Visualization dashboard, Integration tests, Documentation
+- **Mihajlo Sremac** - CoordinatorActor, DeviceControllerActor, LoggerActor, Communication protocol
+
 
 ## 📄 License
 
