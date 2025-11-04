@@ -62,15 +62,6 @@ Demo prikazuje:
 - 🔄 Real-time agregacija (5 ciklusa, HVAC komande)
 - 📊 Finalni rezultati (MSE, komande, logovi)
 
-### 2. **Integration testovi**
-
-```bash
-# Windows PowerShell
-$env:PYTHONPATH='src'; $env:PYTHONIOENCODING='utf-8'; python tests/test_integration.py
-
-# Linux/Mac
-PYTHONPATH=src python tests/test_integration.py
-```
 
 ### 3. **Vizualizacija rezultata**
 
