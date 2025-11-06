@@ -27,7 +27,7 @@ class LoggerActor(BaseActor):
         Args:
             log_file: Putanja do fajla za perzistenciju logova
         """
-        super().__init__("logger", "localhost", 8002)
+        super().__init__("logger", "0.0.0.0", 8002)
         
         self.log_file = log_file
         
@@ -86,6 +86,13 @@ class LoggerActor(BaseActor):
             self.metrics[message.metric_type] = [entry]
         
         self.logger.debug(f"📊 Logged metric: {message.metric_type} = {message.value}")
+
+        # Persist logs asynchronously so other services (demo orchestrator) can read progress
+        try:
+            asyncio.create_task(self.save_logs())
+        except Exception:
+            # If scheduling fails, just continue; periodic or explicit saves may still occur
+            pass
     
     async def _handle_log_event(self, message: LogEvent):
         """
@@ -107,6 +114,11 @@ class LoggerActor(BaseActor):
         self.events.append(entry)
         
         self.logger.info(f"📝 Event: {message.event_type} - {message.description}")
+        # Persist logs asynchronously to ensure demo can read events as they happen
+        try:
+            asyncio.create_task(self.save_logs())
+        except Exception:
+            pass
     
     async def save_logs(self):
         """Čuva sve logove u JSON fajl."""

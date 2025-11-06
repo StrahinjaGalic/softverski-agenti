@@ -16,7 +16,7 @@ class BaseActor(ABC):
     Bazna klasa za sve aktore u sistemu.
     """
     
-    def __init__(self, actor_id: str, host: str = "localhost", port: int = 8000):
+    def __init__(self, actor_id: str, host: str = "0.0.0.0", port: int = 8000):
         self.actor_id = actor_id
         self.host = host
         self.port = port

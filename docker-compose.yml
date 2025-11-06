@@ -1,0 +1,97 @@
+services:
+  # Infrastructure services (Logger + Device Controller)
+  infrastructure:
+    build: .
+    command: ["python", "-m", "src.runners.run_infrastructure"]
+    ports:
+      - "8001:8001"  # DeviceController
+      - "8002:8002"  # Logger
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    environment:
+      - PYTHONPATH=/app/src:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8002)); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - hvac-network
+
+  # Coordinator service  
+  coordinator:
+    build: .
+    command: ["python", "-m", "src.runners.run_coordinator"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app/src:/app
+      - LOGGER_HOST=infrastructure
+      - DEVICE_HOST=infrastructure
+    depends_on:
+      - infrastructure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - hvac-network
+
+  # All 5 sensors in one container
+  sensors:
+    build: .
+    command: ["python", "-m", "src.runners.run_sensors"]
+    ports:
+      - "8010:8010"
+      - "8011:8011" 
+      - "8012:8012"
+      - "8013:8013"
+      - "8014:8014"
+    volumes:
+      - ./config:/app/config:ro
+    environment:
+      - PYTHONPATH=/app/src:/app
+      - COORDINATOR_HOST=coordinator
+      - COORDINATOR_PORT=8000
+    depends_on:
+      - coordinator
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8010)); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    networks:
+      - hvac-network
+
+  # Demo orchestrator - manual execution
+  demo:
+    build: .
+    command: ["tail", "-f", "/dev/null"]  # Keep container running but don't start demo
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+      - ./charts:/app/charts
+    environment:
+      - PYTHONPATH=/app/src:/app
+      - COORDINATOR_HOST=coordinator
+      - COORDINATOR_PORT=8000
+      - LOGGER_HOST=infrastructure
+      - LOGGER_PORT=8002
+    depends_on:
+      - coordinator
+      - sensors
+      - infrastructure
+    networks:
+      - hvac-network
+
+networks:
+  hvac-network:
+    driver: bridge

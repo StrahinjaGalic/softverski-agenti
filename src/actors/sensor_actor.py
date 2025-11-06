@@ -19,7 +19,8 @@ from federation.model import HVACModel
 from simulation.data_generator import DataGenerator
 from utils.messages import (
     Message, StartTraining, ModelUpdate, GlobalModelUpdate,
-    PredictRequest, PredictResponse, ProposalResponse, CollectProposals, SensorData
+    PredictRequest, PredictResponse, ProposalResponse, CollectProposals, SensorData,
+    LogMetrics, LogEvent
 )
 from utils.config import config, SensorConfig
 
@@ -48,12 +49,16 @@ class SensorActor(BaseActor):
         """
         # Pokreni BaseActor sa sensor ID i portom
         sensor_port = self._get_sensor_port(sensor_config.sensor_id)
-        super().__init__(sensor_config.sensor_id, "localhost", sensor_port)
+        super().__init__(sensor_config.sensor_id, "0.0.0.0", sensor_port)
         
         # Sensor konfiguracija
         self.sensor_config = sensor_config
         self.coordinator_host = coordinator_host
         self.coordinator_port = coordinator_port
+        
+        # Logger connection for Docker mode
+        self.logger_host = "infrastructure"  # Docker service name
+        self.logger_port = 8002
         
         # ML komponente
         self.model = HVACModel()
@@ -80,6 +85,7 @@ class SensorActor(BaseActor):
         
         # Scenario tracking - za hardkodovane cikluse iz config-a
         self.current_cycle = 0
+        self.current_iteration = 0
         self.scenario_config = self._load_scenario_config()
         
         # Task-ovi za periodične operacije
@@ -386,6 +392,19 @@ class SensorActor(BaseActor):
         self.local_mse = mse
         self.logger.info(f"Local training completed. MSE: {mse:.4f}")
         
+        # Log training completion metrics
+        await self._log_metrics("local_training", mse, {
+            "sensor_id": self.sensor_config.sensor_id,
+            "location": self.sensor_config.location,
+            "federation_round": self.federation_round + 1,
+            "num_samples": len(temperatures),
+            "epochs": config.federation.local_epochs
+        })
+        
+        await self._log_event("training_complete", 
+                             f"Local training completed for round {self.federation_round + 1}",
+                             {"mse": mse, "location": self.sensor_config.location})
+        
         return mse
     
     async def _send_model_update(self, mse: float):
@@ -457,9 +476,22 @@ class SensorActor(BaseActor):
         # INKREMENTUJ CIKLUS za sledeći poziv (scenario mode)
         if self.scenario_config and self.scenario_config.get("enabled", False):
             cycles = self.scenario_config.get("cycles", [])
-            if cycles:
+            max_iterations = self.scenario_config.get("max_iterations", 1)
+            
+            if cycles and self.current_iteration < max_iterations:
+                old_cycle = self.current_cycle
                 self.current_cycle = (self.current_cycle + 1) % len(cycles)
-                self.logger.info(f"📍 Next cycle: {self.current_cycle + 1}/{len(cycles)}")
+                
+                # Ako smo se vratili na početak, povećaj iteraciju
+                if old_cycle > self.current_cycle:
+                    self.current_iteration += 1
+                
+                if self.current_iteration < max_iterations:
+                    self.logger.info(f"📍 Next cycle: {self.current_cycle + 1}/{len(cycles)} (iteration {self.current_iteration + 1}/{max_iterations})")
+                else:
+                    self.logger.info(f"🏁 All scenario iterations completed ({max_iterations} full cycles)")
+            elif self.current_iteration >= max_iterations:
+                self.logger.info(f"⏹️ Scenario cycle limit reached ({max_iterations} iterations)")
         
         # Kreiraj i pošalji odgovor
         response = ProposalResponse(
@@ -472,6 +504,16 @@ class SensorActor(BaseActor):
         )
         
         await self.send_message(response, self.coordinator_host, self.coordinator_port)
+        
+        # Log sensor data for real-time monitoring
+        await self._log_metrics("sensor_data", proposal, {
+            "sensor_id": self.sensor_config.sensor_id,
+            "location": self.sensor_config.location,
+            "temperature": self.current_conditions['temperature'],
+            "luminosity": self.current_conditions['luminosity'],
+            "proposal": proposal,
+            "confidence": confidence
+        })
         
         self.logger.debug(f"Sent proposal: {proposal:.2f}°C (confidence: {confidence:.2f})")
     
@@ -538,3 +580,30 @@ class SensorActor(BaseActor):
             'model_trained': self.model.is_trained,
             'num_training_samples': len(self.training_data['temperatures'])
         }
+    
+    async def _log_metrics(self, metric_type: str, value: float, data: dict = None):
+        """Send metrics to LoggerActor."""
+        message = LogMetrics(
+            timestamp=datetime.now(),
+            sender_id=self.actor_id,
+            receiver_id="logger",
+            metric_type=metric_type,
+            value=value,
+            round_number=self.federation_round if self.federation_round > 0 else None,
+            data=data
+        )
+        
+        await self.send_message(message, self.logger_host, self.logger_port)
+    
+    async def _log_event(self, event_type: str, description: str, data: dict = None):
+        """Send event to LoggerActor."""
+        message = LogEvent(
+            timestamp=datetime.now(),
+            sender_id=self.actor_id,
+            receiver_id="logger",
+            event_type=event_type,
+            description=description,
+            data=data
+        )
+        
+        await self.send_message(message, self.logger_host, self.logger_port)

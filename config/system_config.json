@@ -29,6 +29,8 @@
   "scenarios": {
     "_comment": "Definiši tačne temperature i svetlost za svaki ciklus. Ako nije definisano, koristi simulaciju.",
     "enabled": true,
+    "max_iterations": 1,
+    "_comment_iterations": "Koliko puta da prođe kroz sve cikluse. 1 znači samo jednom kroz svih 5 ciklusa.",
     "cycles": [
       {
         "_comment": "Ciklus 1: Jutro - hladna kuća, otvoreni prozori",

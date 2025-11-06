@@ -50,7 +50,26 @@ pip install -r requirements.txt
 
 ## ▶️ Pokretanje
 
-### 1. **Demo prezentacija** (preporučeno)
+### 🐳 **Docker (preporučeno)**
+
+```bash
+# Jedina komanda potrebna - pokreće kompletan sistem:
+docker-compose up --build
+
+# Praćenje logova:
+docker-compose logs -f demo
+
+# Zaustavljanje:
+docker-compose down
+```
+
+**Docker demo automatski:**
+- 🏗️ Pokreće sve kontejnere (coordinator, sensors, infrastructure, demo)
+- ⚙️ Startuje federativno učenje (3 runde)
+- 🔄 Izvršava real-time kontrolu (5 ciklusa)  
+- 📊 Generiše rezultate u `./logs/`
+
+### 1. **Lokalno pokretanje** (legacy)
 
 ```bash
 python demo.py

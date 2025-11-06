@@ -1,0 +1,40 @@
+# Docker ignore file
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+.docker/
+README.md
+*.md
+.vscode/
+.idea/
+
+# Logs (will be mounted as volume)
+logs/
+*.log
+
+# Charts output (will be mounted as volume)
+charts/
+*.png
+*.jpg
+*.pdf
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Development
+*.swp
+*.swo
+*~

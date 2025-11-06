@@ -39,7 +39,7 @@ class CoordinatorActor(BaseActor):
         Args:
             config: SystemConfig objekat sa svim parametrima
         """
-        super().__init__("coordinator", "localhost", 8000)
+        super().__init__("coordinator", "0.0.0.0", 8000)
         
         # Konfiguracija
         self.config = config
@@ -58,12 +58,14 @@ class CoordinatorActor(BaseActor):
         self.sensor_proposals: Dict[str, ProposalResponse] = {}  # sensor_id -> ProposalResponse
         self.sensor_data: Dict[str, SensorData] = {}  # sensor_id -> SensorData
         self.in_realtime_mode = False
+        self.system_shutdown = False
         
-        # Device controller i Logger portovi iz config-a
-        self.device_controller_host = "localhost"
+        # Device controller i Logger portovi - Docker aware
+        import os
+        self.device_controller_host = os.getenv('DEVICE_HOST', 'localhost')
         self.device_controller_port = config.network.device_controller_port
         
-        self.logger_host = "localhost"
+        self.logger_host = os.getenv('LOGGER_HOST', 'localhost')
         self.logger_port = config.network.logger_port
         
         # Lista sensor ID-jeva (pratimo ko je aktivan)
@@ -74,6 +76,9 @@ class CoordinatorActor(BaseActor):
     async def start(self):
         """Pokreće koordinatora i automatski startuje federativno učenje."""
         self.logger.info("Starting CoordinatorActor")
+        
+        # Start auto-federation task for Docker mode
+        asyncio.create_task(self._auto_start_federation())
         
         # Pokreni base actor (server + message loop)
         await super().start()
@@ -87,6 +92,11 @@ class CoordinatorActor(BaseActor):
         """
         self.sensor_ids = sensor_ids
         self.logger.info(f"Starting federation with {len(sensor_ids)} sensors")
+        
+        # Log federation start
+        await self._log_event("federation_start", 
+                             f"Started federation with {len(sensor_ids)} sensors",
+                             {"sensor_ids": sensor_ids, "max_rounds": self.max_rounds})
         
         # Pokreni sve runde
         for round_num in range(1, self.max_rounds + 1):
@@ -109,6 +119,9 @@ class CoordinatorActor(BaseActor):
         await self._log_event("federation_complete", 
                              f"Completed {self.max_rounds} rounds",
                              {"final_round": self.max_rounds})
+        
+        # Pokreni task za praćenje završetka scenario ciklusa
+        asyncio.create_task(self._monitor_scenario_completion())
     
     async def _run_federation_round(self, round_num: int):
         """
@@ -178,7 +191,7 @@ class CoordinatorActor(BaseActor):
                 receiver_id=sensor_id
             )
             
-            await self.send_message(message, "localhost", sensor_port)
+            await self.send_message(message, "sensors", sensor_port)
             self.logger.debug(f"   → Sent to {sensor_id}")
     
     async def _wait_for_all_model_updates(self, timeout: int):
@@ -224,7 +237,7 @@ class CoordinatorActor(BaseActor):
                 round_number=round_num
             )
             
-            await self.send_message(message, "localhost", sensor_port)
+            await self.send_message(message, "sensors", sensor_port)
             self.logger.debug(f"   → Sent to {sensor_id}")
     
     async def handle_message(self, message: Message):
@@ -263,8 +276,8 @@ class CoordinatorActor(BaseActor):
         Obrađuje SensorData u real-time modu.
         Kada prikupi sve, pokreće agregaciju predloga.
         """
-        if not self.in_realtime_mode:
-            return  # Ignorišemo ako nismo u real-time modu
+        if not self.in_realtime_mode or self.system_shutdown:
+            return  # Ignorišemo ako nismo u real-time modu ili ako je sistem zaustavljan
         
         self.logger.debug(f"📥 SensorData from {message.sender_id}: T={message.temperature:.1f}°C, L={message.luminosity:.0f}lx")
         
@@ -279,6 +292,9 @@ class CoordinatorActor(BaseActor):
     
     async def _handle_proposal_response(self, message: ProposalResponse):
         """Prikuplja ProposalResponse od senzora."""
+        if self.system_shutdown:
+            return  # Ignorisemo proposal-e tokom shutdown-a
+            
         self.logger.debug(f"📥 Proposal from {message.sender_id}: {message.proposal:.2f}°C")
         
         self.sensor_proposals[message.sender_id] = message
@@ -293,6 +309,10 @@ class CoordinatorActor(BaseActor):
         3. Odredi mode (HEAT/COOL/IDLE) na osnovu razlike
         4. Pošalji ApplyCommand
         """
+        # Proveri da li je sistem u shutdown modu
+        if self.system_shutdown:
+            self.logger.info("⏹️ Skipping aggregation - system shutdown in progress")
+            return
         # Ekstraktuj temperature i predloge
         temperatures = [data.temperature for data in self.sensor_data.values()]
         
@@ -348,7 +368,7 @@ class CoordinatorActor(BaseActor):
                 receiver_id=sensor_id
             )
             
-            await self.send_message(message, "localhost", sensor_port)
+            await self.send_message(message, "sensors", sensor_port)
     
     async def _send_apply_command(self, mode: str, setpoint: float, reference_temp: float):
         """Šalje ApplyCommand DeviceController-u."""
@@ -413,3 +433,58 @@ class CoordinatorActor(BaseActor):
                 'bias': float(self.fedavg.global_bias) if self.fedavg.global_bias is not None else None
             }
         }
+    
+    async def _auto_start_federation(self):
+        """Auto-start federation when all sensors are detected (Docker mode)."""
+        await asyncio.sleep(15)  # Wait for all services to initialize
+        
+        # Get sensor IDs from config
+        sensor_ids = [sensor.sensor_id for sensor in self.config.sensors]
+        
+        self.logger.info("🤖 Auto-starting federation in Docker mode...")
+        await self.start_federation(sensor_ids)
+    
+    async def _monitor_scenario_completion(self):
+        """Prati završetak scenario ciklusa i zaustavlja sistem."""
+        # Učitaj scenario konfiguraciju
+        import json
+        try:
+            with open('/app/config/system_config.json', 'r') as f:
+                config = json.load(f)
+            
+            scenario_config = config.get('scenarios', {})
+            max_iterations = scenario_config.get('max_iterations', 1)
+            cycles_per_iteration = len(scenario_config.get('cycles', []))
+            
+            # Izračunaj ukupno vreme potrebno za scenario
+            # Pretpostavka: ~1 sekund po ciklusu + buffer
+            total_time = (max_iterations * cycles_per_iteration * 2) + 30
+            
+            self.logger.info(f"⏳ Real-time phase will run for ~{total_time} seconds")
+            
+            # Čekaj da se scenario završi
+            await asyncio.sleep(total_time)
+            
+            # Loguj finalni završetak
+            await self._log_event("system_complete", 
+                                 "All federation and scenario cycles completed",
+                                 {
+                                     "federation_rounds": self.max_rounds,
+                                     "scenario_iterations": max_iterations,
+                                     "total_duration_seconds": total_time
+                                 })
+            
+            self.logger.info("🏁 System completed all tasks. Shutting down gracefully...")
+            
+            # Postavi shutdown flag i zaustavi actor
+            self.system_shutdown = True
+            await asyncio.sleep(2)  # Kratka pauza da se završe poslednje operacije
+            await self.stop()
+            
+        except Exception as e:
+            self.logger.error(f"Error in scenario monitoring: {e}")
+            # Fallback - zaustavi posle 5 minuta
+            await asyncio.sleep(300)
+            self.logger.info("🏁 Fallback shutdown after 5 minutes")
+            self.system_shutdown = True
+            await self.stop()

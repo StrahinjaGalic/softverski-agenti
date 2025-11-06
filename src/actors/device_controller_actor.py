@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 from actors import BaseActor
-from utils.messages import ApplyCommand, LogMetrics
+from utils.messages import ApplyCommand, LogMetrics, LogEvent
 
 
 @dataclass
@@ -136,6 +136,12 @@ class DeviceControllerActor(BaseActor):
         
         # Loguj metriku
         await self._log_command_metric(message, old_mode)
+        
+        # Log mode change event
+        if old_mode != requested_mode:
+            await self._log_event("mode_change", 
+                                 f"HVAC mode changed from {old_mode} to {requested_mode}",
+                                 {"old_mode": old_mode, "new_mode": requested_mode, "setpoint": requested_setpoint})
     
     def _can_change_mode(self, new_mode: str, new_setpoint: float) -> tuple[bool, str]:
         """
@@ -207,6 +213,19 @@ class DeviceControllerActor(BaseActor):
         )
         
         await self.send_message(metric, self.logger_host, self.logger_port)
+    
+    async def _log_event(self, event_type: str, description: str, data: dict = None):
+        """Send event to LoggerActor."""
+        event = LogEvent(
+            timestamp=datetime.now(),
+            sender_id=self.actor_id,
+            receiver_id="logger",
+            event_type=event_type,
+            description=description,
+            data=data
+        )
+        
+        await self.send_message(event, self.logger_host, self.logger_port)
     
     def get_status(self) -> Dict[str, Any]:
         """Vraća trenutno stanje uređaja."""
