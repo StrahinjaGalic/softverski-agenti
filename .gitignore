@@ -115,6 +115,11 @@ data/models/
 *.pkl
 *.pickle
 
+# Visualization outputs
+*.html
+interactive_*.html
+visualization_*.png
+
 # VS Code
 .vscode/settings.json
 .vscode/launch.json
